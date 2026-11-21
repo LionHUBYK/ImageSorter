@@ -1,0 +1,18 @@
+# Build output. These folders embed the full path of whoever built the project
+# (including the Windows user name), so they must never be uploaded.
+bin/
+obj/
+
+# The published exe is attached to a GitHub Release instead of living in the repository
+dist/
+
+# Local test proof screenshots
+test-evidence/
+
+# Editor and per-user files
+.vs/
+*.user
+*.suo
+
+# Portable settings file: holds the folder paths the app was used with
+ImageSorter.settings.json
