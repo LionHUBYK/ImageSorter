@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -11,7 +12,7 @@ internal static class ThumbService
 {
     public const int Side = 200;        // longer edge, in pixels
     private const int MaxLoaded = 700;  // thumbnails kept in memory before the oldest are dropped
-    private const int MaxPending = 90;  // comfortably more than fit on screen at once
+    private const int MaxPending = 300; // far more than fit on screen at once
     private const int Workers = 3;
 
     private static readonly object Gate = new();
@@ -45,7 +46,8 @@ internal static class ThumbService
             }
             Monitor.Pulse(Gate);
         }
-        dropped?.CancelRequest();   // it will ask again if it comes back into view
+        // Tell the dropped item later, not from inside this call: it re-requests if its cell is still showing.
+        if (dropped is not null) _ui?.BeginInvoke(new Action(dropped.CancelRequest), DispatcherPriority.Background);
     }
 
     private static void Work()
@@ -60,9 +62,19 @@ internal static class ThumbService
                 Pending.RemoveFirst();
             }
 
+            // A virus scanner or a file still being copied can block the first read, which would
+            // otherwise leave that cell blank for good. Try a few times before giving up.
             BitmapSource? bitmap = null;
-            try { bitmap = ImageDecoder.Thumbnail(item.Path, item.Kind, Side); }
-            catch { /* shown as an empty cell */ }
+            for (int attempt = 0; attempt < 3 && bitmap is null; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    if (!File.Exists(item.Path)) break;   // sorted away in the meantime
+                    Thread.Sleep(250);
+                }
+                try { bitmap = ImageDecoder.Thumbnail(item.Path, item.Kind, Side); }
+                catch { /* try again, or show an empty cell */ }
+            }
 
             _ui?.BeginInvoke(new Action(() => Deliver(item, bitmap)), DispatcherPriority.Background);
         }

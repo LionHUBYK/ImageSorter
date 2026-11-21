@@ -46,6 +46,8 @@ public partial class MainWindow : Window
 
     private bool _syncingFilmstrip;
     private ScrollViewer? _filmScroll;
+    private bool _filmNeedsSettle;     // the list was just replaced; scroll again once it has been measured
+    private bool _labelFolders;        // show a badge where each subfolder's pictures start
 
     private bool _panning;
     private Point _panFrom;
@@ -203,7 +205,10 @@ public partial class MainWindow : Window
         if (differentFolder) _undo.Clear();
         _previews.Clear();
         _items = new ObservableCollection<ImageItem>(found);
+        _labelFolders = order == SortOrder.Name;   // date orders mix folders together, so badges would be noise
+        for (int i = 0; i < _items.Count; i++) RefreshFolderLabel(i);
         Filmstrip.ItemsSource = _items;
+        _filmNeedsSettle = true;
         _index = _items.Count == 0 ? -1 : 0;
         if (keep is not null)
         {
@@ -227,22 +232,59 @@ public partial class MainWindow : Window
             AttributesToSkip = FileAttributes.Hidden | FileAttributes.System,
         };
 
-        var found = new List<(string Path, MediaKind Kind, DateTime Time)>();
+        var found = new List<(string Path, MediaKind Kind, DateTime Time, string Folder, string Name)>();
         foreach (FileInfo file in new DirectoryInfo(folder).EnumerateFiles("*", options))
         {
             if (ImageDecoder.Classify(file.Name) is not { } kind) continue;
-            if (recurse && skip.Count > 0 && file.DirectoryName is { } dir
+            string? dir = file.DirectoryName;
+            if (recurse && skip.Count > 0 && dir is not null
                 && skip.Any(s => SamePath(dir, s) || IsInside(dir, s))) continue;
-            found.Add((file.FullName, kind, order == SortOrder.Name ? default : file.LastWriteTimeUtc));
+
+            string relative = recurse && dir is not null ? Path.GetRelativePath(folder, dir) : ".";
+            found.Add((file.FullName, kind, order == SortOrder.Name ? default : file.LastWriteTimeUtc,
+                relative == "." ? "" : relative, file.Name));
         }
 
         switch (order)
         {
             case SortOrder.Oldest: found.Sort((a, b) => a.Time.CompareTo(b.Time)); break;
             case SortOrder.Newest: found.Sort((a, b) => b.Time.CompareTo(a.Time)); break;
-            default: found.Sort((a, b) => Native.StrCmpLogicalW(a.Path, b.Path)); break;
+            default:
+                // Folder by folder, all the way down: a folder's own pictures first, then each of its
+                // subfolders in turn (and their subfolders), so one folder's pictures always sit together.
+                found.Sort((a, b) =>
+                {
+                    int byFolder = CompareFolders(a.Folder, b.Folder);
+                    return byFolder != 0 ? byFolder : Native.StrCmpLogicalW(a.Name, b.Name);
+                });
+                break;
         }
-        return found.Select(f => new ImageItem(f.Path, f.Kind)).ToList();
+        return found.Select(f => new ImageItem(f.Path, f.Kind, f.Folder)).ToList();
+    }
+
+    /// <summary>Orders relative folders so a parent comes before its children and siblings sort like Explorer.</summary>
+    private static int CompareFolders(string a, string b)
+    {
+        if (a == b) return 0;
+        if (a.Length == 0) return -1;
+        if (b.Length == 0) return 1;
+        string[] x = a.Split(Path.DirectorySeparatorChar), y = b.Split(Path.DirectorySeparatorChar);
+        for (int i = 0; i < Math.Min(x.Length, y.Length); i++)
+        {
+            int c = Native.StrCmpLogicalW(x[i], y[i]);
+            if (c != 0) return c;
+        }
+        return x.Length.CompareTo(y.Length);
+    }
+
+    /// <summary>Puts the folder badge on whichever picture is currently the first one of its subfolder.</summary>
+    private void RefreshFolderLabel(int i)
+    {
+        if (i < 0 || i >= _items.Count) return;
+        ImageItem item = _items[i];
+        bool startsFolder = _labelFolders && item.FolderKey.Length > 0
+                            && (i == 0 || _items[i - 1].FolderKey != item.FolderKey);
+        item.FolderLabel = startsFolder ? Path.GetFileName(item.FolderKey) : null;
     }
 
     private async void Subfolders_Click(object sender, RoutedEventArgs e)
@@ -361,7 +403,7 @@ public partial class MainWindow : Window
         }
 
         EmptyState.Visibility = Visibility.Collapsed;
-        NameText.Text = item.Name;
+        NameText.Text = item.RelativeName;   // includes the subfolder, so you can tell where a picture lives
         NamePill.Visibility = Visibility.Visible;
 
         if (item.IsVideo)
@@ -390,6 +432,10 @@ public partial class MainWindow : Window
         _shown = decoded;
         _shownItem = item;
         _shownSide = side;
+
+        // The picture on screen must never be a blank square in the filmstrip: if its own thumbnail
+        // hasn't loaded (or failed), make one from what was just decoded.
+        if (item.ThumbIfLoaded is null) item.SetThumb(ImageDecoder.Downscale(decoded.Bitmap, ThumbService.Side));
 
         // A small picture is shown at its real size instead of being stretched into a blur.
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
@@ -533,7 +579,9 @@ public partial class MainWindow : Window
         if (mode == SortMode.Move)
         {
             _previews.Remove(item.Path);
+            int removedAt = _index;
             _items.RemoveAt(_index);
+            RefreshFolderLabel(removedAt);   // the next picture may now be the first of its folder
             if (_index >= _items.Count) _index = _items.Count - 1;
         }
         else if (_index < _items.Count - 1)
@@ -607,6 +655,8 @@ public partial class MainWindow : Window
         {
             int at = Math.Clamp(op.Index, 0, _items.Count);
             _items.Insert(at, op.Item);
+            RefreshFolderLabel(at);
+            RefreshFolderLabel(at + 1);
             _index = at;
         }
         else
@@ -747,10 +797,22 @@ public partial class MainWindow : Window
         Filmstrip.SelectedIndex = _index;
         _syncingFilmstrip = false;
 
+        ScrollFilmstripToCurrent();
+        if (_filmNeedsSettle)
+        {
+            // A new list has a new length that the strip only knows after its next layout pass.
+            // Scroll once more after that, or the strip can be left showing the wrong stretch.
+            _filmNeedsSettle = false;
+            Dispatcher.BeginInvoke(new Action(ScrollFilmstripToCurrent), DispatcherPriority.Loaded);
+        }
+    }
+
+    /// <summary>Keep the current picture in the middle of the strip.</summary>
+    private void ScrollFilmstripToCurrent()
+    {
         if (_index < 0) return;
         _filmScroll ??= FindChild<ScrollViewer>(Filmstrip);
         if (_filmScroll is null) return;
-        // Keep the current picture in the middle of the strip.
         double offset = _index * FilmCell - (_filmScroll.ViewportWidth - FilmCell) / 2;
         _filmScroll.ScrollToHorizontalOffset(Math.Max(0, offset));
     }

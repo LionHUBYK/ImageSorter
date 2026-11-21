@@ -35,16 +35,34 @@ public sealed class ImageItem : Observable
     private ImageSource? _thumb;
     private bool _requested;
 
-    public ImageItem(string path, MediaKind kind)
+    private string? _folderLabel;
+
+    public ImageItem(string path, MediaKind kind, string folderKey = "")
     {
         Path = path;
         Kind = kind;
+        FolderKey = folderKey;
     }
 
     public string Path { get; }
     public MediaKind Kind { get; }
     public string Name => System.IO.Path.GetFileName(Path);
     public bool IsVideo => Kind == MediaKind.Video;
+
+    /// <summary>This file's folder relative to the folder that was opened; empty for the opened folder itself.</summary>
+    public string FolderKey { get; }
+
+    /// <summary>The name including any subfolders, e.g. <c>Trips\2024\IMG_1.jpg</c>.</summary>
+    public string RelativeName => FolderKey.Length == 0 ? Name : System.IO.Path.Combine(FolderKey, Name);
+
+    /// <summary>
+    /// Set on the first picture of each subfolder, so the filmstrip can mark where that folder's pictures start.
+    /// </summary>
+    public string? FolderLabel
+    {
+        get => _folderLabel;
+        set => Set(ref _folderLabel, value);
+    }
 
     public ImageSource? Thumb
     {
@@ -75,7 +93,12 @@ public sealed class ImageItem : Observable
         _requested = false;
     }
 
-    internal void CancelRequest() => _requested = false;
+    /// <summary>The load was dropped from a full queue. A cell that is still on screen asks again.</summary>
+    internal void CancelRequest()
+    {
+        _requested = false;
+        Raise(nameof(Thumb));
+    }
 }
 
 /// <summary>A small picture inside a sorter's card. Created empty, then filled when the flying image lands.</summary>

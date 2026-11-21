@@ -82,14 +82,28 @@
         </Style>
 
         <DataTemplate x:Key="FilmTemplate" DataType="{x:Type local:ImageItem}">
-            <Grid ToolTip="{Binding Name}" Background="Transparent">
+            <Grid ToolTip="{Binding RelativeName}" Background="Transparent">
                 <Image Source="{Binding Thumb}" Stretch="Uniform" Margin="2"/>
+                <!-- Marks the first picture of each subfolder with that folder's name -->
+                <Border x:Name="FolderBadge" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="3" MaxWidth="102"
+                        Background="#E6101010" BorderBrush="{StaticResource Accent}" BorderThickness="1"
+                        CornerRadius="4" Padding="5,1,6,2">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" FontSize="9" Text="&#xE8B7;" Margin="0,1,4,0"/>
+                        <TextBlock Text="{Binding FolderLabel}" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+                </Border>
                 <Border Visibility="{Binding IsVideo, Converter={StaticResource BoolToVis}}"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="4"
                         Background="#C0000000" CornerRadius="4" Padding="5,3">
                     <TextBlock Style="{StaticResource Icon}" FontSize="10" Text="&#xE768;"/>
                 </Border>
             </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding FolderLabel}" Value="{x:Null}">
+                    <Setter TargetName="FolderBadge" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- A sorter: hotkey, name, folder and the pictures sent there -->

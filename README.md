@@ -6,11 +6,14 @@ It shows one picture at a time, like a photo viewer. You set up "sorters" (a des
 
 ## Download
 
-Get `ImageSorter.exe` from the [latest release](https://github.com/LionHUBYK/ImageSorter/releases/latest).
+From the [latest release](https://github.com/LionHUBYK/ImageSorter/releases/latest), pick one:
 
-- One file, no install. The .NET runtime is included, so nothing else is needed.
-- Windows 10 or 11, 64-bit.
-- The exe is not code-signed, so Windows may show a "Windows protected your PC" box the first time. Choose **More info**, then **Run anyway**.
+- **`ImageSorterSetup.exe`** installs the app for your Windows account (no administrator prompt), adds a Start menu shortcut, and can be removed again from Installed apps.
+- **`ImageSorter.exe`** is the portable version: one file, no install, run it from anywhere.
+
+Both include the .NET runtime, so nothing else is needed. Windows 10 or 11, 64-bit.
+
+Neither file is code-signed, so Windows may show a "Windows protected your PC" box the first time. Choose **More info**, then **Run anyway**.
 
 ## How to use it
 
@@ -35,7 +38,7 @@ You can also click a sorter card instead of pressing its key.
 
 - **Nothing is overwritten.** If the destination already has a file with the same name, the new one is saved as `name (2).jpg`.
 - **Undo is real.** Undoing a move puts the file back; undoing a copy sends the copy to the Recycle Bin.
-- **Include subfolders** also lists pictures in folders below the one you opened (folders you sort into are left out).
+- **Include subfolders** also lists pictures in folders below the one you opened, folder by folder all the way down: the opened folder first, then each subfolder, then its subfolders. The first picture of each subfolder is marked with that folder's name. Folders you sort into are left out.
 - Sorters and settings are remembered in `%AppData%\ImageSorter\settings.json`. For portable use, put an empty file called `ImageSorter.settings.json` next to the exe and settings are kept there instead.
 
 ## File types
@@ -51,5 +54,7 @@ Requires the .NET 10 SDK on Windows.
 ```
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o dist
 ```
+
+To build the installer, compile `installer\ImageSorter.iss` with [Inno Setup 6](https://jrsoftware.org/isinfo.php) after publishing; it writes `dist\ImageSorterSetup.exe`.
 
 Built with WPF, [Magick.NET](https://github.com/dlemstra/Magick.NET) and [WpfAnimatedGif](https://github.com/XamlAnimatedGif/WpfAnimatedGif).
